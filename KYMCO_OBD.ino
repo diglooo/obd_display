@@ -1,37 +1,54 @@
 #include <AltSoftSerial.h>
 #include "ELMduino.h"
 #include <U8g2lib.h>
-
 #include "logo.h"
 
-#define SERIAL_LOOPBACK
-#undef SERIAL_LOOPBACK
-
-#define DEBUG_MODE
-#undef DEBUG_MODE
-
-#define SIMULATION
-#undef SIMULATION
-
+//electrical connecitons
+//HC-05 pins to arduino
+//bare HC-05 module works with 3.3v power and signals
+//to power the module with 5V, use two diodes in series
 #define HC05_RESET_PIN 2
 #define HC05_KEY_PIN 10
-AltSoftSerial HC05Serial;
-#define ELM_PORT HC05Serial
+#define HC05_TX 8
+#define HC05_RX 9
 
-//U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ SCL, /* data=*/ SDA);  
-//U8G2_KS0108_128X64_2 u8g2(U8G2_R0, /*d0-d7*/ A0, A1, A2, A3, A4, A5, 4, 5, /*enable=*/ 7, /*dc=*/ 6, /*cs0=*/ 3, /*cs1=*/ 2, /*cs2=*/ U8X8_PIN_NONE, /* reset=*/  U8X8_PIN_NONE);   // Set R/W to low!
-//U8G2_SSD1309_128X64_NONAME2_F_4W_HW_SPI u8g2(U8G2_R2, OLED_CS, OLED_DC, OLED_RES);
-
-#ifndef SERIAL_LOOPBACK
+//oled screen pins to arduino
+//ebay: 2.42" OLED screen SSD1309 128x64
 #define OLED_CS 3
 #define OLED_DC 7
 #define OLED_RES 6
 #define OLED_SCK 5
 #define OLED_DATA 4
+
+//use arduino pins 8-9 as additional serial port
+//pin 8: receive
+//pin 9: transmit
+AltSoftSerial HC05Serial;
+#define ELM_PORT HC05Serial
+
+#define SERIAL_LOOPBACK
+#define DEBUG_MODE
+#define SIMULATION
+
+//uncomment to talk directly yo the HC-05 module in AT mode
+#undef SERIAL_LOOPBACK
+
+//uncomment to run the application in debug mode
+#undef DEBUG_MODE
+
+//uncomment to simulate display data
+//if no ELM327 is available
+#undef SIMULATION
+
+
+#ifndef SERIAL_LOOPBACK
 ELM327 myELM327;
+//U8G2 constructor set in page mode to save RAM
 U8G2_SSD1309_128X64_NONAME2_2_4W_SW_SPI  u8g2(U8G2_R2, OLED_SCK, OLED_DATA, OLED_CS, OLED_DC, OLED_RES);
 #endif
 
+
+//Application states
 #define STATE_BOOTING 0
 #define STATE_CONNECTING 1
 #define STATE_CONNECTED 2
@@ -42,31 +59,36 @@ U8G2_SSD1309_128X64_NONAME2_2_4W_SW_SPI  u8g2(U8G2_R2, OLED_SCK, OLED_DATA, OLED
 #define STATE_ELM_ERROR 7
 #define STATE_DELAY 100
 uint8_t appCurrState = 0;
-//uint8_t appLastState = 0;
+
 
 char tempstr[5];
-
 float RPM = 0;
 float ECT = 0;
 float INTAKETEMP = 0;
 float ENGINELOAD = 0;
 float VBAT = 0;
 
+
+double mapLimit(double x, double in_min, double in_max, double out_min, double out_max)
+{
+	if (x > in_max) return out_max;
+	if (x < in_min) return out_min;
+	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
 void setup()
 {
   pinMode(HC05_RESET_PIN, OUTPUT);
   pinMode(HC05_KEY_PIN, OUTPUT);
+
+  //reset HC-05 module on power-up
   digitalWrite(HC05_KEY_PIN, LOW);
   digitalWrite(HC05_RESET_PIN, LOW);
-  //digitalWrite(HC05_KEY_PIN, HIGH);
-  //digitalWrite(HC05_RESET_PIN, HIGH);
 
   Serial.begin(115200);
   ELM_PORT.begin(38400);
   
 #ifdef SERIAL_LOOPBACK
-  
-  /*
   ELM_PORT.println("AT+RESET");
   Serial.println("AT+RESET");
   delay(1000);
@@ -91,7 +113,6 @@ void setup()
   ELM_PORT.println("AT+LINK=AB90,78,563412");
   Serial.println("AT+LINK=AB90,78,563412");
   delay(5000);
-  */
   while (1)
   {
 	  while (Serial.available()) ELM_PORT.write(Serial.read());
@@ -132,6 +153,7 @@ void loop()
 			u8g2.drawXBMP(0, 0, 128, 64, kymco_logo);
 		} while (u8g2.nextPage());
 #endif
+		//reset HC-05
 		digitalWrite(HC05_RESET_PIN, LOW);
 		delay(1000);
 		appCurrState = STATE_CONNECTING;
@@ -146,10 +168,11 @@ void loop()
 		u8g2.drawStr(8, 0,  "CONNECTING");
 		} while (u8g2.nextPage());
 #endif
-
+		//boot HC-05
 		digitalWrite(HC05_RESET_PIN, HIGH);
-		delay(2000);
+		delay(3000);
 
+		//initiate communication with ELM327 module
 		if (myELM327.begin(ELM_PORT, false, 5000, ISO_15765_11_BIT_500_KBAUD))
 			appCurrState = STATE_CONNECTED;
 		else 
@@ -207,7 +230,7 @@ void loop()
 		{
 			ECT = myELM327.engineCoolantTemp();
 			INTAKETEMP = myELM327.intakeAirTemp();
-			ENGINELOAD = abs(myELM327.engineLoad());
+			ENGINELOAD = mapLimit(abs(myELM327.engineLoad()),11,82,0,100);
 		}
 		VBAT = myELM327.ELMVoltage();
 #endif
@@ -250,7 +273,6 @@ void loop()
 			u8g2.setFont(u8g2_font_helvB08_tf);
 			u8g2.drawStr(50, 32+2, "RPM");
 			u8g2.setDrawColor(1);
-
 
 			barWidth = map(ENGINELOAD, 0, 100, 0, 128);
 			u8g2.drawBox(2, 48, barWidth, 16);
