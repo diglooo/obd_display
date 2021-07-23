@@ -40,13 +40,11 @@ AltSoftSerial HC05Serial;
 //if no ELM327 is available
 #undef SIMULATION
 
-
 #ifndef SERIAL_LOOPBACK
 ELM327 myELM327;
 //U8G2 constructor set in page mode to save RAM
 U8G2_SSD1309_128X64_NONAME2_2_4W_SW_SPI  u8g2(U8G2_R2, OLED_SCK, OLED_DATA, OLED_CS, OLED_DC, OLED_RES);
 #endif
-
 
 //Application states
 #define STATE_BOOTING 0
@@ -60,14 +58,12 @@ U8G2_SSD1309_128X64_NONAME2_2_4W_SW_SPI  u8g2(U8G2_R2, OLED_SCK, OLED_DATA, OLED
 #define STATE_DELAY 100
 uint8_t appCurrState = 0;
 
-
 char tempstr[5];
 float RPM = 0;
 float ECT = 0;
 float INTAKETEMP = 0;
 float ENGINELOAD = 0;
 float VBAT = 0;
-
 
 double mapLimit(double x, double in_min, double in_max, double out_min, double out_max)
 {
@@ -225,6 +221,7 @@ void loop()
 		INTAKETEMP = 27.1 + random(-2, 2) / 10.2;
 		ENGINELOAD = 50 + random(-10, 10);
 #else
+		//read PID data from ELM327
 		RPM = abs(myELM327.rpm());
 		if (myELM327.status == ELM_SUCCESS)
 		{
@@ -232,6 +229,8 @@ void loop()
 			INTAKETEMP = myELM327.intakeAirTemp();
 			ENGINELOAD = mapLimit(abs(myELM327.engineLoad()),11,82,0,100);
 		}
+		//VBAT is not available as PID on Kymco Agility
+		//read voltage reported by ELM module
 		VBAT = myELM327.ELMVoltage();
 #endif
 
